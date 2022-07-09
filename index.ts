@@ -5,10 +5,6 @@ import { serve } from "https://deno.land/std@0.147.0/http/server.ts";
 import { acceptWebSocket } from "https://deno.land/std@0.92.0/ws/mod.ts";
 
 
-// const app = new Application();
-
-const pubsub = new PubSub();  
-
 const types = gql`
 type User {
   firstName: String
@@ -38,6 +34,7 @@ type Subscription {
 `;
 
 const USER_ADDED = 'USER_ADDED';
+const pubsub = new PubSub();  
 
 const resolvers = {
   Subscription: {
@@ -77,42 +74,50 @@ const GraphQLService = await applyGraphQL<Router>({
   }
 });
 
-const conn = Deno.listen({ port: 8000 });
-const httpConn = Deno.serveHttp(await conn.accept());
-const e = await httpConn.nextRequest();
-if (e) {
+const app = new Application();
+const router = new Router();
+
+router.get('/graphql', ((ctx, next) => {
   console.log('here');
-  console.log(e.request.headers.get('upgrade'));
-  const { socket, response } = Deno.upgradeWebSocket(e.request);
-  socket.onopen = () => {
-    socket.send("Hello World!");
-  };
-  socket.onmessage = (e) => {
-    console.log(e.data);
-    socket.close();
-  };
-  socket.onclose = () => console.log("WebSocket has been closed.");
-  socket.onerror = (e) => console.error("WebSocket error:", e);
-  e.respondWith(response);
-}
 
-// app.use(GraphQLService.routes(), GraphQLService.allowedMethods());
-
-console.log('here');
-let i = 0;
-const addUser = () => {
-  const user = {
-    firstName: 'david' + i,
-    lastName: 'palmer'
+  console.log(ctx.request.headers);
+  if (!ctx.isUpgradable) {
+    console.log('connection not upgradeable');
+    return next();
   }
-  i++;
-  console.log(user);
-  pubsub.publish('USER_ADDED', { userAdded: user });
-  setTimeout(addUser, 4000);
-}
+  const socket = ctx.upgrade();
+  socket.addEventListener('open', () => {
+    console.log('Web socket open')
+  });
+  socket.addEventListener('close', () => {
+    console.log('Web socket closed');
+  });
+  socket.addEventListener('message', (event) => {
+    console.log('Web socket message', event.data);
+  });
+  return next();
+}));
 
-addUser();
+app.use(router.routes());
+app.use(GraphQLService.routes(), GraphQLService.allowedMethods());
+app.addEventListener('error', (ev) => {
+  console.log('An error occured: ', ev);
+});
+
+// let i = 0;
+// const addUser = () => {
+//   const user = {
+//     firstName: 'david' + i,
+//     lastName: 'palmer'
+//   }
+//   i++;
+//   console.log(user);
+//   pubsub.publish('USER_ADDED', { userAdded: user });
+//   setTimeout(addUser, 4000);
+// }
+
+// addUser();
 
 console.log("Server start at http://localhost:8080");
-// await app.listen({ port: 8080 });
+await app.listen({ port: 8080 });
 
