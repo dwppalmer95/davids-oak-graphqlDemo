@@ -2,48 +2,13 @@
 
 import { Application, Router } from "https://deno.land/x/oak@v10.6.0/mod.ts";
 import { applyGraphQL, gql, GQLError, PubSub } from "./oak-graphql-master/mod.ts";
-import { graphql, GraphQLObjectType, GraphQLString, GraphQLBoolean } from "https://cdn.skypack.dev/graphql";
-import { makeExecutableSchema } from 'https://deno.land/x/oak_graphql@0.6.2/graphql-tools/schema/makeExecutableSchema.ts';
-import { serve } from "https://deno.land/std@0.147.0/http/server.ts";
-import { acceptWebSocket } from "https://deno.land/std@0.92.0/ws/mod.ts";
+import { graphql, GraphQLObjectType, GraphQLString, GraphQLBoolean, subscribe, GraphQLSchema } from "https://cdn.skypack.dev/graphql";
 
-const resolvers = {
-  Subscription: {
-    userAdded: {
-      subscribe: () => {
-        console.log('in the resolver for subscription')
-        pubsub.asyncIterator([USER_ADDED])
-      },
-    }
-  },
-  Query: {
-    getUser: (parent: any, { id }: any, context: any, info: any) => {
-      return {
-        firstName: "david",
-        lastName: "palmer",
-      };
-    },
-  },
-  Mutation: {
-    setUser: (parent: any, { input: { firstName, lastName } }: any, context: any, info: any) => {
-      console.log("input:", firstName, lastName);
-      return {
-        done: true,
-      };
-    },
-  },
-};
+const USER_ADDED = 'USER_ADDED';
+const pubsub = new PubSub();  
 
 const UserType = new GraphQLObjectType({
   name: 'User',
-  fields: {
-    firstName: { type: GraphQLString },
-    lastName: { type: GraphQLString },
-  },
-});
-
-const UserInputType = new GraphQLObjectType({
-  name: 'UserInput',
   fields: {
     firstName: { type: GraphQLString },
     lastName: { type: GraphQLString },
@@ -75,8 +40,8 @@ const MutationType = new GraphQLObjectType({
     setUser: {
       type: ResolveType,
       args: { newUser: { type: UserType } },
-      resolve: ({ newUser }) => {
-        console.log(newUser);
+      resolve: (obj: any, args: any) => {
+        console.log(args.newUser);
         return { done: true };
       },
     },
@@ -88,25 +53,18 @@ const SubscriptionType = new GraphQLObjectType({
   fields: {
     userAdded: {
       type: UserType,
+      resolve: () => {
+        console.log('inside of subscription resolver');
+        pubsub.asyncIterator([USER_ADDED]);
+      },
     },
   },
 });
 
-const USER_ADDED = 'USER_ADDED';
-const pubsub = new PubSub();  
-
-
-
-const schema = makeExecutableSchema({ typeDefs, resolvers });
-
-const GraphQLService = await applyGraphQL<Router>({
-  Router,
-  typeDefs: typeDefs,
-  resolvers: resolvers,
-  context: (ctx) => {
-  	// this line is for passing a user context for the auth
-    return { user: "David" };
-  }
+const schema = new GraphQLSchema({
+  // query: QueryType,
+  // mutation: MutationType,
+  subscription: SubscriptionType,
 });
 
 const app = new Application();
@@ -115,15 +73,11 @@ const router = new Router();
 const handleGraphQlQuery = async (ctx: any, next: any) => {
   const {query} = await ctx.request.body().value;
   console.log('Query: ', query);
-  const result = await (graphql as any)(
+  const result = await (graphql as any)({
     schema,
-    query,
-    resolvers,
-    undefined,
-    undefined,
-    undefined
-  );
-  // console.log('result', result);
+    document: query,
+  });
+  console.log('result: ', result);
   return next();
 }
 
@@ -143,14 +97,10 @@ router.get('/graphql', ((ctx, next) => { //right now, a get request to /graphql 
   });
   socket.addEventListener('message', async (event) => {
     console.log('Web socket message:', event.data);
-    const result = await (graphql as any)(
+    const result = await (subscribe as any)({
       schema,
-      event.data,
-      resolvers,
-      undefined,
-      undefined,
-      undefined
-    );
+      document: event.data,
+    });
     console.log('result', result);
     addUser(5);
   });
