@@ -55,7 +55,7 @@ const SubscriptionType = new GraphQLObjectType({
       type: UserType,
       resolve: () => {
         console.log('inside of subscription resolver');
-        pubsub.asyncIterator([USER_ADDED]);
+        pubsub.asyncIterator([USER_ADDED]); // subscribes to everything in the events array
       },
     },
   },
